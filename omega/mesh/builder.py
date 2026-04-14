@@ -73,8 +73,7 @@ def build_mesh_hierarchy(
         MeshHierarchy,
         prolong,
     )
-    from firedrake.ufl_expr import as_vector, split
-    from ufl import project
+    from ufl import as_vector, split, project
 
     # Validate input arrays
     elevation_coords = np.asarray(elevation_coords)
