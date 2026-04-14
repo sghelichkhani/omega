@@ -38,9 +38,19 @@ class Polygon:
         # Create shapely polygon
         self._polygon = ShapelyPolygon(self._coords)
 
+        # Check for simple polygon (no self-intersections) before repair
+        if not self._polygon.is_simple:
+            raise PolygonError("Polygon has self-intersections")
+
         # Validate and repair if needed
         if not self._polygon.is_valid:
-            self._polygon = make_valid(self._polygon)
+            repaired = make_valid(self._polygon)
+            # make_valid can return MultiPolygon for complex cases
+            if not isinstance(repaired, ShapelyPolygon):
+                raise PolygonError(
+                    "Invalid polygon geometry: could not repair to simple polygon"
+                )
+            self._polygon = repaired
             if not self._polygon.is_valid:
                 raise PolygonError(
                     f"Invalid polygon geometry: {self._polygon.is_valid}"
@@ -49,10 +59,6 @@ class Polygon:
         # Ensure counter-clockwise orientation (exterior ring)
         if not self._polygon.exterior.is_ccw:
             self._polygon = ShapelyPolygon(self._polygon.exterior.coords[::-1])
-
-        # Check for simple polygon (no self-intersections)
-        if not self._polygon.is_simple:
-            raise PolygonError("Polygon has self-intersections")
 
     @classmethod
     def from_shapely(
