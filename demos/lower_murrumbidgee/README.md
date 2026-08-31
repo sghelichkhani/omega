@@ -15,10 +15,13 @@ G-ADOPT / Firedrake interpreter:
 python lower_murrumbidgee_mesh.py
 ```
 
-The files kept here are the script (`lower_murrumbidgee_mesh.py`), the final
-checkpoint (`lower_murrumbidgee_1500m_150L.h5`) and its VTK (`*.pvd` + the
-matching subdirectory), the regenerated DEM (`murrumbidgee_dem.tif`), and the
-georeference reference note (`full_modflow_domain.md`). The separate borehole/log
+The files tracked here are the script (`lower_murrumbidgee_mesh.py`) and the
+georeference reference note (`full_modflow_domain.md`). Running the script
+writes the rest next to it: the checkpoint
+(`lower_murrumbidgee_1500m_150L.h5`), its VTK (`*.pvd` plus the matching
+subdirectory) and the regenerated DEM (`murrumbidgee_dem.tif`). Those come to
+several hundred megabytes, so they stay out of the repository. The separate
+borehole/log
 investigation scripts live in `borehole_investigation/`.
 
 ## The final output
