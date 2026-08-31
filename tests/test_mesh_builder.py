@@ -334,3 +334,105 @@ class TestLegacyGriddataEquivalence:
             n_layers=4,
         )
         assert np.all(np.isfinite(hierarchy[-1].coordinates.dat.data_ro))
+
+
+class TestCollectiveTerrainCheck:
+    """The terrain check runs on distributed data and must behave collectively.
+
+    On a large rank count the coarse mesh of a hierarchy leaves some ranks with
+    no nodes at all, and the check has to survive that. It also has to reach the
+    same verdict everywhere: if one rank raises while the others continue into
+    the next collective call, the job hangs instead of reporting the error.
+    These tests drive the helper through a fake communicator, so the behaviour
+    is pinned without needing a parallel test run.
+    """
+
+    class _FakeComm:
+        """Stands in for an MPI communicator over pre-set per-rank values.
+
+        allgather is given the whole set of rank contributions up front, and
+        returns them for whichever rank is calling. That is enough to exercise
+        the reduction, which is all the helper uses the communicator for.
+        """
+
+        def __init__(self, contributions):
+            self._contributions = list(contributions)
+            self._call = 0
+
+        def allgather(self, value):
+            # Each call consumes the next prepared round: verdicts, then minima.
+            round_values = self._contributions[self._call]
+            self._call += 1
+            # The calling rank's own contribution must appear in the result, so
+            # a test cannot prepare a round that contradicts what the helper
+            # actually computed. NaN needs care: it compares unequal to itself,
+            # and a NaN thickness legitimately reduces to a NaN minimum.
+            def same(a, b):
+                if isinstance(a, float) and isinstance(b, float):
+                    return a == b or (np.isnan(a) and np.isnan(b))
+                return a == b
+
+            assert any(
+                same(v, value) for v in round_values
+            ), f"caller's value {value!r} missing from {round_values!r}"
+            return round_values
+
+    def test_empty_local_array_does_not_raise(self):
+        # The regression: np.min has no identity, so a rank owning no coarse
+        # nodes used to abort the whole job with "zero-size array to reduction
+        # operation minimum". Only shows up in parallel, on enough ranks.
+        from omega.mesh.builder import _collective_terrain_check
+
+        comm = self._FakeComm([[None, None], [float("inf"), 42.0]])
+        failure, min_thk = _collective_terrain_check(
+            comm, np.array([]), np.array([])
+        )
+        assert failure is None
+        assert min_thk == 42.0
+
+    def test_all_ranks_empty_reports_no_minimum(self):
+        from omega.mesh.builder import _collective_terrain_check
+
+        comm = self._FakeComm([[None], [float("inf")]])
+        failure, min_thk = _collective_terrain_check(
+            comm, np.array([]), np.array([])
+        )
+        assert failure is None
+        assert min_thk is None
+
+    def test_minimum_is_global_not_local(self):
+        # A rank whose own nodes are all healthy must still see another rank's
+        # collapsed column, or the warning fires on some ranks only.
+        from omega.mesh.builder import _collective_terrain_check
+
+        comm = self._FakeComm([[None, None], [10.0, -3.0]])
+        failure, min_thk = _collective_terrain_check(
+            comm, np.array([100.0, 101.0]), np.array([10.0, 12.0])
+        )
+        assert failure is None
+        assert min_thk == -3.0
+
+    def test_a_failure_on_any_rank_is_reported_everywhere(self):
+        # This rank's own data is clean; another rank saw NaN. The helper must
+        # still report a failure here so every rank raises together.
+        from omega.mesh.builder import _collective_terrain_check
+
+        comm = self._FakeComm(
+            [[None, "depth contains NaN or infinite values"], [10.0, 5.0]]
+        )
+        failure, _ = _collective_terrain_check(
+            comm, np.array([100.0]), np.array([10.0])
+        )
+        assert failure == "depth contains NaN or infinite values"
+
+    def test_local_failure_is_detected(self):
+        from omega.mesh.builder import _collective_terrain_check
+
+        message = "depth contains NaN or infinite values"
+        # A NaN thickness reduces to a NaN minimum, which is never <= 0, so no
+        # spurious warning follows the failure that is about to be raised.
+        comm = self._FakeComm([[message], [float("nan")]])
+        failure, _ = _collective_terrain_check(
+            comm, np.array([100.0]), np.array([np.nan])
+        )
+        assert failure == message

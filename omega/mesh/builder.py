@@ -14,6 +14,47 @@ from omega.exceptions import MeshGenerationError
 from omega.fields.surfaces import Surface
 
 
+def _collective_terrain_check(comm, top_values, thk_values):
+    """Validate rank-local terrain samples and reduce the verdict across `comm`.
+
+    The coarse mesh of a hierarchy is distributed, and on a large rank count a
+    rank can own no nodes at all. Both checks below must therefore survive an
+    empty local array, and both must reach the same answer everywhere: a
+    validation failure seen by one rank has to raise on all of them, or the
+    ranks that saw nothing march on into the next collective call and the job
+    hangs instead of reporting the real error.
+
+    Args:
+        comm: MPI communicator of the mesh being sampled.
+        top_values: Rank-local ground elevations, shape (n_local,).
+        thk_values: Rank-local depths to bedrock, shape (n_local,).
+
+    Returns:
+        Tuple of (message, min_thickness). ``message`` is None when the terrain
+        is valid everywhere, otherwise the first failing rank's description.
+        ``min_thickness`` is the global minimum thickness, or None when no rank
+        owns any node.
+    """
+    from omega.mesh.transform import validate_terrain_data
+
+    # np.any over an empty array is False, so a rank owning no nodes reports
+    # valid, which is the right answer for a rank with nothing to object to.
+    is_valid, message = validate_terrain_data(top_values, thk_values, tolerance=1.0)
+
+    # Gather the verdicts rather than raising locally. allgather is enough here:
+    # these are two scalars per rank, once per build.
+    verdicts = comm.allgather(None if is_valid else message)
+    failure = next((m for m in verdicts if m is not None), None)
+
+    # np.min has no identity, so an empty local array cannot contribute one.
+    # Send infinity instead and let the reduction ignore it; if every rank is
+    # empty the result stays infinite and there is no minimum to report.
+    local_min = float(np.min(thk_values)) if thk_values.size else float("inf")
+    global_min = min(comm.allgather(local_min))
+
+    return failure, (None if global_min == float("inf") else global_min)
+
+
 def build_mesh_hierarchy(
     mesh_2d,
     top_surface: Surface,
@@ -124,17 +165,18 @@ def build_mesh_hierarchy(
     top_values = top_surface(xy_coarse)
 
     if validate_terrain:
-        from omega.mesh.transform import validate_terrain_data
-
-        is_valid, message = validate_terrain_data(top_values, thk_values, tolerance=1.0)
-        if not is_valid:
-            raise MeshGenerationError(f"Invalid terrain data: {message}")
+        # Collective: every rank must agree on the verdict and on the minimum
+        # thickness, and a rank owning no coarse nodes must not break either.
+        failure, min_thk = _collective_terrain_check(
+            mh3d[0].comm, top_values, thk_values
+        )
+        if failure is not None:
+            raise MeshGenerationError(f"Invalid terrain data: {failure}")
 
         # A thickness at or below zero passes the tolerance check but collapses the
         # column (every layer maps to the top), silently degrading the mesh. Warn
         # so a caller who forgot a clamp_min floor finds out before a big build.
-        min_thk = float(np.min(thk_values))
-        if min_thk <= 0.0:
+        if min_thk is not None and min_thk <= 0.0:
             import warnings
 
             warnings.warn(
