@@ -5,13 +5,22 @@ values ``(m,)``. It is the single currency the rest of OMEGA composes on: terrai
 elevation, layer-boundary depths, and aquifer thickness are all surfaces, and the
 mesh extrusion and stratigraphy layers consume them through this one contract.
 
-The only fitter is :class:`GaussianKernelSurface` -- density-normalised Gaussian
-kernel regression over scattered picks, evaluated through a
+The default fitter is :class:`GaussianKernelSurface` -- density-normalised
+Gaussian kernel regression over scattered picks, evaluated through a
 :class:`scipy.spatial.cKDTree` k-nearest-neighbour query. It is smooth and
 seamless everywhere (no convex hull, no fill hack, no triangulation facets), it
 declusters co-located picks instead of letting them dominate by count, and the
 k-NN query keeps per-point cost bounded so a surface can be evaluated directly on
-the nodes of a large mesh.
+the nodes of a large mesh. Use it for scattered, clustered, mutually inconsistent
+data: boreholes.
+
+:class:`GridSurface` is the counterpart for sources that are already dense and
+regular, such as a DEM or a modelled grid. It interpolates (piecewise-linear over
+a Delaunay triangulation, nearest-neighbour outside the hull) rather than
+averaging, because on a lattice finer than the mesh there is nothing to smooth
+and a kernel mean would only flatten real relief. It is also the bit-exact route
+to meshes built before this refactor, when the extrusion took raw coordinate and
+value arrays and ran them through ``scipy.interpolate.griddata``.
 
 Surfaces must be **pure, deterministic, and replicated on every MPI rank** (they
 hold their full source picks and do no collective operations); this is what lets
@@ -241,6 +250,120 @@ class GaussianKernelSurface(Surface):
             f"GaussianKernelSurface(n={len(self._coords)}, "
             f"sigma={self._sigma:g}, k={self._k})"
         )
+
+
+class GridSurface(Surface):
+    """Piecewise-linear surface over a dense source, with a nearest-neighbour fill.
+
+    A :class:`Surface` wrapper around Delaunay-based linear interpolation --
+    exactly what ``scipy.interpolate.griddata(method="linear")`` performs -- with
+    the points outside the convex hull filled from the nearest source point.
+
+    This is the right primitive when the source is already dense and trustworthy:
+    a DEM or a modelled grid sampled on a regular lattice finer than the mesh. In
+    that regime the failure modes that motivate :class:`GaussianKernelSurface` do
+    not arise. There are no co-located conflicting picks to decluster, and the
+    triangulation facets that "spike" on disagreeing boreholes are, on a regular
+    lattice, simply the bilinear surface the grid already implies. Averaging such
+    a source instead of interpolating it only removes real relief: a Gaussian
+    kernel is bounded by its inputs, so it flattens ridges and fills valleys at a
+    scale set by sigma.
+
+    Prefer :class:`GaussianKernelSurface` for scattered, clustered, mutually
+    inconsistent picks (boreholes). Prefer this for dense gridded sources, and for
+    reproducing meshes built before the Surface refactor: the interpolation here
+    is the same call the array-based ``build_mesh_hierarchy`` used, so a mesh
+    rebuilt through a ``GridSurface`` matches the original to the bit.
+
+    The convex-hull fill is a genuine limitation, not a hidden fix. Outside the
+    hull the value is piecewise constant, so a mesh extending past its terrain
+    data gets flat steps rather than a smooth relaxation. Keep the source
+    footprint larger than the mesh, or use :class:`GaussianKernelSurface`, which
+    has no hull at all.
+
+    Like every surface, this one is pure, deterministic and replicated on every
+    MPI rank: it holds its own source arrays and does no collective operations.
+    Qhull's triangulation is a deterministic function of the input points, so
+    every rank builds the same one and evaluates identically. The triangulation is
+    built lazily on first call and then cached, so constructing a surface that is
+    never evaluated (a coarse level that a rank does not own) costs nothing.
+
+    Args:
+        coords: Source coordinates, shape (n, 2).
+        values: Scalar value at each source point, shape (n,).
+        fill: How to value query points outside the convex hull. ``"nearest"``
+            (default) takes the nearest source value. ``"nan"`` leaves them NaN,
+            which lets a caller detect that the mesh escaped its data rather than
+            silently extrapolating.
+
+    Raises:
+        InterpolationError: If shapes are inconsistent, values are not finite,
+            there are fewer than three points, or ``fill`` is not recognised.
+    """
+
+    def __init__(
+        self,
+        coords: np.ndarray,
+        values: np.ndarray,
+        fill: str = "nearest",
+    ):
+        self._coords = np.asarray(coords, dtype=float)
+        self._values = np.asarray(values, dtype=float)
+        self._fill = str(fill)
+
+        if self._coords.ndim != 2 or self._coords.shape[1] != 2:
+            raise InterpolationError("coords must have shape (n, 2)")
+        if self._values.ndim != 1 or len(self._values) != len(self._coords):
+            raise InterpolationError("values must be 1-D and match coords")
+        # A Delaunay triangulation needs three non-collinear points; below that
+        # there is no linear patch to interpolate over.
+        if len(self._coords) < 3:
+            raise InterpolationError("need at least three points for a linear surface")
+        if not np.all(np.isfinite(self._values)):
+            raise InterpolationError("values must be finite (a single NaN poisons every query)")
+        if not np.all(np.isfinite(self._coords)):
+            raise InterpolationError("coords must be finite")
+        if self._fill not in ("nearest", "nan"):
+            raise InterpolationError(f"fill must be 'nearest' or 'nan', got {fill!r}")
+
+        # Built on first evaluation; see the class docstring on laziness.
+        self._linear = None
+        self._nearest = None
+
+    def _interpolators(self):
+        """Build and cache the linear (and, if filling, nearest) interpolators.
+
+        ``LinearNDInterpolator`` over a ``Delaunay`` of the source points is the
+        same object ``griddata(method="linear")`` constructs internally, so the
+        values match it exactly rather than merely closely.
+        """
+        if self._linear is None:
+            from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+
+            self._linear = LinearNDInterpolator(self._coords, self._values)
+            if self._fill == "nearest":
+                self._nearest = NearestNDInterpolator(self._coords, self._values)
+        return self._linear, self._nearest
+
+    def __call__(self, xy: np.ndarray) -> np.ndarray:
+        xy = np.asarray(xy, dtype=float)
+        if xy.ndim != 2 or xy.shape[1] < 2:
+            raise InterpolationError("xy must have shape (m, >=2)")
+        query = xy[:, :2]
+
+        linear, nearest = self._interpolators()
+        out = np.asarray(linear(query), dtype=float)
+
+        # Outside the convex hull the linear interpolator returns NaN. Backfill
+        # from the nearest source point unless the caller asked to see the gap.
+        if nearest is not None:
+            outside = np.isnan(out)
+            if np.any(outside):
+                out[outside] = nearest(query[outside])
+        return out
+
+    def __repr__(self) -> str:
+        return f"GridSurface(n={len(self._coords)}, fill={self._fill!r})"
 
 
 def clamp_monotonic(surfaces: list[Surface], increasing: bool = False) -> list[Surface]:

@@ -27,6 +27,7 @@ from omega.exceptions import (
 from omega.fields import (
     FieldInterpolator,
     GaussianKernelSurface,
+    GridSurface,
     IntervalObservations,
     LayerModel,
     Surface,
@@ -46,9 +47,10 @@ __all__ = [
     "Polygon",
     "LocalFrame",
     "ExtrusionConfig",
-    # Surfaces (the one interpolation primitive)
+    # Surfaces: kernel regression for scattered picks, linear for dense grids
     "Surface",
     "GaussianKernelSurface",
+    "GridSurface",
     "clamp_monotonic",
     # Fields and layered models
     "FieldInterpolator",

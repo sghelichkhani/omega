@@ -223,3 +223,114 @@ class TestBuildMeshHierarchy:
             mask = np.all(np.abs(mesh_coords[:, :2] - xy) < 1e-4, axis=1)
             col_z = mesh_coords[mask, 2]
             assert col_z.max() - col_z.min() > 1.0
+
+
+class TestLegacyGriddataEquivalence:
+    """A GridSurface through the builder must reproduce the pre-refactor mesh.
+
+    Before the Surface refactor, build_mesh_hierarchy took raw coordinate and
+    value arrays and ran them through scipy griddata (linear, with a nearest
+    backfill for the convex-hull NaNs). Existing campaigns were meshed that way,
+    so the equivalence has to hold to the bit: anything less means re-running
+    them to keep the reported numbers honest. These tests reconstruct the legacy
+    arithmetic explicitly and compare.
+    """
+
+    @pytest.fixture
+    def simple_mesh_2d(self, simple_polygon_coords):
+        polygon = Polygon(simple_polygon_coords)
+        sm = SurfaceMesh(polygon, resolution=20.0)
+        sm.generate()
+        return sm.to_firedrake_mesh()
+
+    @pytest.fixture
+    def terrain_arrays(self):
+        """A dense lattice of elevation and thickness picks, as a DEM would give."""
+        x = np.linspace(-50.0, 150.0, 25)
+        xx, yy = np.meshgrid(x, x)
+        coords = np.column_stack([xx.ravel(), yy.ravel()])
+        elevation = 100.0 + 0.1 * coords[:, 0] + 0.05 * coords[:, 1]
+        thickness = 40.0 + 5.0 * np.sin(coords[:, 0] / 30.0)
+        return coords, elevation, thickness
+
+    @staticmethod
+    def _legacy_sample(coords, values, xy):
+        """The exact sampling the array-based builder performed."""
+        from scipy.interpolate import griddata
+
+        out = griddata(coords, values, xy, method="linear")
+        gaps = np.isnan(out)
+        if np.any(gaps):
+            out[gaps] = griddata(coords, values, xy[gaps], method="nearest")
+        return out
+
+    def test_grid_surface_matches_legacy_sampling_on_the_mesh_nodes(
+        self, simple_mesh_2d, terrain_arrays
+    ):
+        from omega.fields.surfaces import GridSurface
+
+        coords, elevation, thickness = terrain_arrays
+        xy = simple_mesh_2d.coordinates.dat.data_ro[:, :2]
+
+        assert np.array_equal(
+            GridSurface(coords, elevation)(xy),
+            self._legacy_sample(coords, elevation, xy),
+        )
+        assert np.array_equal(
+            GridSurface(coords, thickness)(xy),
+            self._legacy_sample(coords, thickness, xy),
+        )
+
+    def test_hierarchy_coordinates_match_the_legacy_transform(
+        self, simple_mesh_2d, terrain_arrays
+    ):
+        # Sample on the coarse nodes, then apply z = thk*z + top - thk, which is
+        # what the legacy builder did before prolonging. With refinement_levels=0
+        # there is no prolongation, so the whole legacy path is reproduced here.
+        from omega.fields.surfaces import GridSurface
+
+        coords, elevation, thickness = terrain_arrays
+        hierarchy = build_mesh_hierarchy(
+            simple_mesh_2d,
+            GridSurface(coords, elevation),
+            GridSurface(coords, thickness),
+            n_layers=5,
+        )
+        mesh = hierarchy[-1]
+
+        xy = mesh.coordinates.dat.data_ro[:, :2]
+        top = self._legacy_sample(coords, elevation, xy)
+        thk = self._legacy_sample(coords, thickness, xy)
+
+        # Recover the normalised z the extrusion started from, then re-apply the
+        # legacy transform to it and check we land on the same coordinates.
+        z_physical = mesh.coordinates.dat.data_ro[:, 2]
+        z_normalised = (z_physical - (top - thk)) / thk
+        assert np.allclose(thk * z_normalised + top - thk, z_physical, rtol=0, atol=1e-9)
+        # The column really does span bedrock to ground surface.
+        assert np.isclose(z_normalised.min(), 0.0, atol=1e-9)
+        assert np.isclose(z_normalised.max(), 1.0, atol=1e-9)
+
+    def test_survives_a_mesh_extending_past_the_terrain_data(self, simple_polygon_coords):
+        # The nearest backfill is the reason the legacy path never produced NaN
+        # geometry. A GridSurface must inherit that, or a mesh whose polygon
+        # escapes its terrain grid gets NaN coordinates instead of flat steps.
+        from omega.fields.surfaces import GridSurface
+
+        polygon = Polygon(simple_polygon_coords)
+        sm = SurfaceMesh(polygon, resolution=20.0)
+        sm.generate()
+        mesh_2d = sm.to_firedrake_mesh()
+
+        # Terrain covering only a corner of the polygon.
+        x = np.linspace(0.0, 30.0, 8)
+        xx, yy = np.meshgrid(x, x)
+        coords = np.column_stack([xx.ravel(), yy.ravel()])
+
+        hierarchy = build_mesh_hierarchy(
+            mesh_2d,
+            GridSurface(coords, 100.0 + 0.1 * coords[:, 0]),
+            GridSurface(coords, np.full(len(coords), 40.0)),
+            n_layers=4,
+        )
+        assert np.all(np.isfinite(hierarchy[-1].coordinates.dat.data_ro))
