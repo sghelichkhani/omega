@@ -35,8 +35,7 @@ def load_mesh(path: str | Path, name: str = "mesh"):
 
     Args:
         path: Path to HDF5 checkpoint file.
-        name: Name of the mesh in the checkpoint file. Default: "mesh"
-            (matches the name used by MeshBuilder).
+        name: Name of the mesh in the checkpoint file. Default: "mesh".
 
     Returns:
         Firedrake mesh object.

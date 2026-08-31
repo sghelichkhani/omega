@@ -29,6 +29,8 @@ dependencies = [
     "scipy",
     "shapely>=2.0",
     "gmsh",
+    "ausdem>=0.1.0",
+    "austrata>=0.1.0",
 ]
 
 [project.optional-dependencies]

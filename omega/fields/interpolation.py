@@ -1,4 +1,12 @@
-"""Field interpolation using scipy.spatial.cKDTree."""
+"""Nearest-neighbour / IDW point interpolation using scipy.spatial.cKDTree.
+
+For fitting smooth scalar surfaces from scattered data (elevations, layer
+boundaries) use :class:`omega.fields.surfaces.GaussianKernelSurface`. The
+:class:`FieldInterpolator` here is the escape hatch for the two cases the Gaussian
+surface deliberately does not cover: nearest-neighbour lookup (e.g. categorical
+data that cannot be averaged) and inverse-distance weighting (a slope-tracking
+alternative where a bounded weighted mean under-extrapolates a trend).
+"""
 
 from __future__ import annotations
 
