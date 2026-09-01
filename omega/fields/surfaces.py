@@ -149,6 +149,8 @@ class GaussianKernelSurface(Surface):
         k: Number of nearest picks per query. Clamped to ``n``. Choose
             ``k > (picks within ~3 sigma)``; the surface warns once if ``k``
             truncates contributors (the k-th neighbour falls inside 3 sigma).
+            A ``k`` at or above the pick count covers every pick, so it never
+            truncates and never warns.
 
     Raises:
         InterpolationError: If shapes are inconsistent or there are no picks.
@@ -218,8 +220,14 @@ class GaussianKernelSurface(Surface):
         return dist, idx
 
     def _warn_truncation(self, frac: float) -> None:
-        """Warn if k truncates real contributors (k-th nearest pick < 3 sigma)."""
-        if frac > 0.01:
+        """Warn if k truncates real contributors (k-th nearest pick < 3 sigma).
+
+        The k-th-neighbour test says nothing when ``k`` has been clamped to the
+        pick count: every pick is then already in the window, so the sum is exact
+        and no larger ``k`` exists to move to. Only a genuinely truncating window
+        (``k < n``) can drop a contributor, so gate the warning on that.
+        """
+        if frac > 0.01 and self._k < len(self._coords):
             warnings.warn(
                 f"GaussianKernelSurface: k={self._k} truncates contributors for "
                 f"{frac:.0%} of picks (k-th nearest within 3 sigma). Increase k or "
