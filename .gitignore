@@ -19,3 +19,10 @@ dist/
 *.pvd
 *.vtu
 *.tif
+
+# Working notes -- private research record, never committed
+NOTES/
+
+# Local agent/editor instruction files
+CLAUDE.md
+AGENTS.md

@@ -10,7 +10,7 @@ Two regions are reported:
     terrain transform isn't extrapolating), and
   * the active alluvium outline inside it (the original 7-vertex demo polygon).
 
-Georeference (from full_modflow_domain.md, approximate — a few km of error):
+Georeference (from the CSIRO/SKM 2010 report grid, approximate — a few km of error):
   SW corner of the full grid = 143.01 deg E, -35.76 deg (lat), at local (0, 0);
   scale ~91,800 m per degree longitude, ~110,170 m per degree latitude.
 

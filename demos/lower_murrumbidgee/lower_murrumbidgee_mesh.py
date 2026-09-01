@@ -69,7 +69,7 @@ HERE = Path(__file__).parent
 
 # --- one georeference for everything ------------------------------------------
 # Local metric frame: origin 143.01 E / -35.76 S (the CSIRO/SKM full-grid SW
-# corner, fitted to towns in full_modflow_domain.md), 91,800 m/deg lon,
+# corner, fitted to town positions on the report grid), 91,800 m/deg lon,
 # 110,170 m/deg lat. The active alluvium polygon sits offset inside that frame;
 # this places it over the REAL Murrumbidgee (where the boreholes are), so the
 # DEM box and the bores share one frame.

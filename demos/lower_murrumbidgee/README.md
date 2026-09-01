@@ -15,9 +15,8 @@ G-ADOPT / Firedrake interpreter:
 python lower_murrumbidgee_mesh.py
 ```
 
-The files tracked here are the script (`lower_murrumbidgee_mesh.py`) and the
-georeference reference note (`full_modflow_domain.md`). Running the script
-writes the rest next to it: the checkpoint
+The only file tracked here is the script (`lower_murrumbidgee_mesh.py`).
+Running the script writes the rest next to it: the checkpoint
 (`lower_murrumbidgee_1500m_150L.h5`), its VTK (`*.pvd` plus the matching
 subdirectory) and the regenerated DEM (`murrumbidgee_dem.tif`). Those come to
 several hundred megabytes, so they stay out of the repository. The separate
@@ -50,8 +49,9 @@ of longitude and 110,170 m per degree of latitude. The active-alluvium polygon i
 offset by (+45 km E, +73.8 km N) inside that frame so it sits over the true
 Murrumbidgee, where the boreholes actually are. The DEM request box and the
 borehole projection are both driven by this one transform, so topography and
-geology line up. The fit and its town tie-points are documented in
-`full_modflow_domain.md`. (An earlier convention that pinned the polygon directly
+geology line up. The fit and its town tie-points come from the
+CSIRO/SKM (2010) groundwater modelling report for the Lower Murrumbidgee.
+(An earlier convention that pinned the polygon directly
 at the origin placed it ~45 × 74 km too far south-west; we do not use it.)
 
 **The DEM owns the top; layers are depths measured down from it.** Rather than
