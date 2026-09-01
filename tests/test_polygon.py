@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from omega.geometry import Polygon
 from omega.exceptions import PolygonError
+from omega.geometry import Polygon
 
 
 class TestPolygon:

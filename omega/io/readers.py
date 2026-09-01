@@ -110,7 +110,7 @@ class CSVReader:
         try:
             # Use numpy for efficient reading
             # First, read header to get column indices
-            with open(path, "r", encoding="utf-8-sig") as f:
+            with open(path, encoding="utf-8-sig") as f:
                 header = f.readline().strip().split(self.delimiter)
 
             # Clean header (remove BOM if present, strip whitespace)

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from omega.fields.interpolation import FieldInterpolator, interpolate_to_coords
 from omega.exceptions import InterpolationError
+from omega.fields.interpolation import FieldInterpolator, interpolate_to_coords
 
 
 class TestFieldInterpolator:

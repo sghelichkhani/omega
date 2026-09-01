@@ -123,9 +123,9 @@ def build_mesh_hierarchy(
         FunctionSpace,
         HierarchyBase,
         MeshHierarchy,
+        project,
         prolong,
     )
-    from firedrake import project
     from ufl import as_vector, split
 
     if not isinstance(top_surface, Surface):
