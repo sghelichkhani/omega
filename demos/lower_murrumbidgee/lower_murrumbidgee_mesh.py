@@ -45,12 +45,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import numpy as np
-from matplotlib.path import Path as MplPath
-
 import ausdem
+import numpy as np
 from austrata import NGISClient
 from firedrake import Function, FunctionSpace, VTKFile
+from matplotlib.path import Path as MplPath
 
 from omega import (
     GaussianKernelSurface,
@@ -227,7 +226,7 @@ def main():
     clamped = clamp_monotonic(
         [raw_surfaces[form] for form in MODEL_FORMATIONS], increasing=True
     )
-    depth_surfaces = dict(zip(MODEL_FORMATIONS, clamped))
+    depth_surfaces = dict(zip(MODEL_FORMATIONS, clamped, strict=True))
 
     # Depth-below-top layer model: the DEM owns the top, each formation is a depth
     # measured down from it. The Renmark is the open bottom layer (everything below

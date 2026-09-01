@@ -24,9 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 import pybomwater.bom_water as bw
-
 
 # --- Region of interest -------------------------------------------------------
 # Lower Murrumbidgee, NSW (same basin as the lower_murrumbidgee mesh demo).

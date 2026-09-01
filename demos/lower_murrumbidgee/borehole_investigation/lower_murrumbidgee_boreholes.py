@@ -18,9 +18,8 @@ Run:  python examples/lower_murrumbidgee_boreholes.py
 """
 from __future__ import annotations
 
-from shapely.geometry import Polygon
-
 from austrata import GADataClient
+from shapely.geometry import Polygon
 
 # --- georeference: local full-grid frame (metres) -> lon/lat (EPSG:4283) ------
 ORIGIN_LON = 143.01       # deg E at full-grid local X = 0 (SW corner)

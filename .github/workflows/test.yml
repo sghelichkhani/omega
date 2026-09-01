@@ -64,5 +64,7 @@ jobs:
       - name: Install linting tools
         run: pip install ruff
 
+      # The demos are collected by pytest (testpaths covers them), so they are
+      # part of the suite and get the same lint treatment as the package.
       - name: Run ruff
-        run: ruff check omega/ tests/
+        run: ruff check omega/ tests/ demos/

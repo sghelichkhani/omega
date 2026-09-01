@@ -34,6 +34,8 @@ class TestDemoPipeline:
         return dem, shep, cal, ren
 
     def test_pipeline_builds_mesh_and_classifies(self):
+        from firedrake import Function, FunctionSpace
+
         from omega import (
             LayerModel,
             Polygon,
@@ -42,14 +44,13 @@ class TestDemoPipeline:
             build_mesh_hierarchy,
             clamp_monotonic,
         )
-        from firedrake import Function, FunctionSpace
 
         dem, shep, cal, ren = self._surfaces()
         order = ["Shepparton", "Calivil", "Renmark"]
         ks = {"Shepparton": 2.5e-5, "Calivil": 1e-3, "Renmark": 5e-4}
 
         clamped = clamp_monotonic([shep, cal, ren], increasing=True)
-        depths = dict(zip(order, clamped))
+        depths = dict(zip(order, clamped, strict=True))
         model = LayerModel.from_depths(dem, depths, open_bottom=True)
         thickness = depths["Renmark"].clamp_min(5.0)
 
@@ -79,7 +80,8 @@ class TestDemoPipeline:
         )
 
         dem, shep, cal, ren = self._surfaces()
-        depths = dict(zip(["a", "b", "c"], clamp_monotonic([shep, cal, ren], increasing=True)))
+        clamped = clamp_monotonic([shep, cal, ren], increasing=True)
+        depths = dict(zip(["a", "b", "c"], clamped, strict=True))
         LayerModel.from_depths(dem, depths)  # constructs without error
 
         sm = SurfaceMesh(Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]), resolution=25.0)
